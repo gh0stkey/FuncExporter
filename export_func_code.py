@@ -48,7 +48,7 @@ class traceNatives(plugin_t):
         # 查找需要的函数
         ea, ed = getSegAddr()
         so_path, so_name = getSoPathAndName()
-        script_name = so_name.split(".")[0] + "_" + str(int(time.time())) +".txt"
+        script_name = so_name.split(".")[0] + "_" + str(int(time.time())) +".c"
         save_path = os.path.join(so_path, script_name)
         print(f"导出路径：{save_path}")
         F=open(save_path, "w+", encoding="utf-8")
