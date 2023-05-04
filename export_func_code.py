@@ -23,7 +23,8 @@ def getSegAddr():
 
     for seg in idautils.Segments():
         if (idc.get_segm_name(seg)).lower() == '.text' or (
-        idc.get_segm_name(seg)).lower() == 'text':
+        idc.get_segm_name(seg)).lower() == 'text'or (
+        idc.get_segm_name(seg)).lower() == '__text':
             tempStart = idc.get_segm_start(seg)
             tempEnd = idc.get_segm_end(seg)
 
@@ -33,7 +34,7 @@ def getSegAddr():
     return min(textStart), max(textEnd)
 
 
-class export_func_code(plugin_t):
+class traceNatives(plugin_t):
     flags = PLUGIN_PROC
     comment = "export_func_code"
     help = ""
@@ -48,7 +49,7 @@ class export_func_code(plugin_t):
         # 查找需要的函数
         ea, ed = getSegAddr()
         so_path, so_name = getSoPathAndName()
-        script_name = so_name.split(".")[0] + "_" + str(int(time.time())) +".cc"
+        script_name = so_name.split(".")[0] + "_" + str(int(time.time())) +".txt"
         save_path = os.path.join(so_path, script_name)
         print(f"导出路径：{save_path}")
         F=open(save_path, "w+", encoding="utf-8")
@@ -75,4 +76,4 @@ class export_func_code(plugin_t):
 
 
 def PLUGIN_ENTRY():
-    return export_func_code()
+    return traceNatives()
