@@ -1,3 +1,5 @@
-# ~~export_func_code~~
-~~IDA Plugin exports all pseudocode at once for easy search and analysis~~  
-ctrl+F5 can be, see [official documentation](https://www.hex-rays.com/products/decompiler/manual/interactive.shtml), the plug-in abandoned.
+# FuncExporter
+
+来自：https://github.com/jitcor/export_func_code
+
+IDA插件，一键导出伪代码
