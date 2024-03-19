@@ -11,6 +11,7 @@ import idaapi
 import idautils
 import idc
 import time
+import re
 
 # 获取当前反编译的文件名
 def getSoName():
@@ -47,11 +48,11 @@ class traceNatives(plugin_t):
     flags = PLUGIN_PROC
     comment = "FuncExporter"
     help = ""
-    wanted_name = "FuncExport"
+    wanted_name = "FuncExporter"
     wanted_hotkey = ""
 
     def init(self):
-        print("FuncExport(v0.1) plugin has been loaded.")
+        print("FuncExport(v0.2) plugin has been loaded.")
         print("Original author: https://github.com/jitcor/export_func_code")
         return PLUGIN_OK
     
@@ -71,7 +72,7 @@ class traceNatives(plugin_t):
 
         for func in idautils.Functions(ea, ed):
             try:
-                functionName = str(idaapi.ida_funcs.get_func_name(func))
+                functionName = re.sub('[\W_]+', '_', str(idaapi.ida_funcs.get_func_name(func)))
                 if len(list(idautils.FuncItems(func))) > 10:
                     # 如果是thumb模式，地址+1
                     arm_or_thumb = idc.get_sreg(func, "T")
