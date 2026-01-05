@@ -60,6 +60,117 @@ def format_address_list(addr_list):
     """格式化地址列表为逗号分隔的十六进制字符串"""
     return ", ".join([hex(addr) for addr in addr_list])
 
+def export_call_graph(export_dir):
+    """导出全局调用链分析文件"""
+    call_graph_path = os.path.join(export_dir, "call_graph.txt")
+    
+    ea, ed = getSegAddr()
+    functions_data = {}
+    total_funcs = 0
+    
+    # 收集所有函数信息
+    print("[*] Analyzing function call relationships...")
+    for func_ea in idautils.Functions(ea, ed):
+        func_name = idc.get_func_name(func_ea)
+        demangled_name = idc.demangle_name(func_name, idc.get_inf_attr(idc.INF_SHORT_DN))
+        display_name = demangled_name if demangled_name else func_name
+        
+        callers = get_callers(func_ea)
+        callees = get_callees(func_ea)
+        
+        functions_data[func_ea] = {
+            'name': display_name,
+            'original_name': func_name,
+            'callers': callers,
+            'callees': callees
+        }
+        total_funcs += 1
+    
+    # 写入调用图文件
+    with open(call_graph_path, 'w', encoding='utf-8') as f:
+        f.write("# Global Call Graph Analysis\n")
+        f.write("# This file contains the complete function call relationships\n")
+        f.write("# Format: FUNCTION -> [calls] -> [called_by]\n")
+        f.write("#" + "=" * 80 + "\n\n")
+        
+        # 统计信息
+        leaf_functions = []
+        root_functions = []
+        highly_called = []
+        
+        for func_ea, data in functions_data.items():
+            if not data['callees']:  # 叶子函数（不调用其他函数）
+                leaf_functions.append((func_ea, data['name'], len(data['callers'])))
+            if not data['callers']:  # 根函数（不被其他函数调用）
+                root_functions.append((func_ea, data['name'], len(data['callees'])))
+            if len(data['callers']) >= 5:  # 被频繁调用的函数
+                highly_called.append((func_ea, data['name'], len(data['callers'])))
+        
+        # 写入概要统计
+        f.write("## OVERVIEW\n")
+        f.write(f"Total Functions: {total_funcs}\n")
+        f.write(f"Root Functions (entry points): {len(root_functions)}\n")
+        f.write(f"Leaf Functions: {len(leaf_functions)}\n")
+        f.write(f"Highly Called Functions (5+ callers): {len(highly_called)}\n")
+        f.write("\n")
+        
+        # 写入根函数列表
+        f.write("## ROOT FUNCTIONS (Entry Points)\n")
+        for func_ea, name, callees_count in sorted(root_functions, key=lambda x: x[2], reverse=True):
+            f.write(f"{hex(func_ea)}: {name} -> calls {callees_count} functions\n")
+        f.write("\n")
+        
+        # 写入高频调用函数
+        f.write("## HIGHLY CALLED FUNCTIONS\n")
+        for func_ea, name, callers_count in sorted(highly_called, key=lambda x: x[2], reverse=True):
+            f.write(f"{hex(func_ea)}: {name} -> called by {callers_count} functions\n")
+        f.write("\n")
+        
+        # 写入详细调用关系
+        f.write("## DETAILED CALL RELATIONSHIPS\n")
+        f.write("#" + "-" * 80 + "\n")
+        
+        for func_ea in sorted(functions_data.keys()):
+            data = functions_data[func_ea]
+            f.write(f"\nFUNCTION: {hex(func_ea)} - {data['name']}\n")
+            
+            if data['original_name'] != data['name']:
+                f.write(f"  Original: {data['original_name']}\n")
+            
+            # 调用的函数
+            if data['callees']:
+                f.write("  CALLS:\n")
+                for callee_ea in data['callees']:
+                    callee_data = functions_data.get(callee_ea)
+                    if callee_data:
+                        f.write(f"    -> {hex(callee_ea)}: {callee_data['name']}\n")
+                    else:
+                        callee_name = idc.get_func_name(callee_ea)
+                        f.write(f"    -> {hex(callee_ea)}: {callee_name}\n")
+            else:
+                f.write("  CALLS: (leaf function)\n")
+            
+            # 被调用
+            if data['callers']:
+                f.write("  CALLED BY:\n")
+                for caller_ea in data['callers']:
+                    caller_data = functions_data.get(caller_ea)
+                    if caller_data:
+                        f.write(f"    <- {hex(caller_ea)}: {caller_data['name']}\n")
+                    else:
+                        caller_name = idc.get_func_name(caller_ea)
+                        f.write(f"    <- {hex(caller_ea)}: {caller_name}\n")
+            else:
+                f.write("  CALLED BY: (entry point)\n")
+            
+            f.write(f"  STATS: calls={len(data['callees'])}, called_by={len(data['callers'])}\n")
+    
+    print("[*] Call Graph Summary:")
+    print(f"    Total functions analyzed: {total_funcs}")
+    print(f"    Root functions: {len(root_functions)}")
+    print(f"    Leaf functions: {len(leaf_functions)}")
+    print(f"    Highly called functions: {len(highly_called)}")
+
 def export_strings(export_dir):
     """导出所有字符串"""
     strings_path = os.path.join(export_dir, "strings.txt")
@@ -127,18 +238,26 @@ def export_exports(export_dir):
     export_count = 0
     with open(exports_path, 'w', encoding='utf-8') as f:
         f.write("# Exports\n")
-        f.write("# Format: func-addr:func-name\n")
+        f.write("# Format: index:func-addr:func-name\n")
         f.write("#" + "=" * 60 + "\n\n")
         
         for i in range(ida_entry.get_entry_qty()):
+            export_index = i + 1
             ordinal = ida_entry.get_entry_ordinal(i)
             ea = ida_entry.get_entry(ordinal)
             name = ida_entry.get_entry_name(ordinal)
             
             if name:
-                f.write("{}:{}\n".format(hex(ea), name))
+                # 尝试获取去修饰的名称，如果失败则使用原始名称
+                demangled_name = idc.demangle_name(name, idc.get_inf_attr(idc.INF_SHORT_DN))
+                if demangled_name:
+                    display_name = demangled_name
+                else:
+                    display_name = name
+                
+                f.write("{}:{}:{}\n".format(export_index, hex(ea), display_name))
             else:
-                f.write("{}:ordinal_{}\n".format(hex(ea), ordinal))
+                f.write("{}:{}:ordinal_{}\n".format(export_index, hex(ea), ordinal))
             export_count += 1
     
     print("[*] Exports Summary:")
@@ -234,12 +353,14 @@ def export_decompiled_functions(export_dir):
     ensure_dir(decompile_dir)
     
     ea, ed = getSegAddr()
-    total_funcs = 0
+    
+    total_funcs = sum(1 for _ in idautils.Functions(ea, ed))
     exported_funcs = 0
     failed_funcs = []
     
+    print(f"[*] Found {total_funcs} functions to decompile...")
+    
     for func in idautils.Functions(ea, ed):
-        total_funcs += 1
         func_name = idc.get_func_name(func)
         
         try:
@@ -269,7 +390,7 @@ def export_decompiled_functions(export_dir):
             output_lines.append(dec_str)
             
             # 使用地址作为文件名
-            output_filename = "{}.c".format(hex(func))
+            output_filename = "{}.txt".format(hex(func))
             output_path = os.path.join(decompile_dir, output_filename)
             
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -277,8 +398,12 @@ def export_decompiled_functions(export_dir):
             
             exported_funcs += 1
             
-            if exported_funcs % 100 == 0:
-                print("[+] Exported {} functions...".format(exported_funcs))
+            # 显示进度信息
+            if exported_funcs % 50 == 0 or exported_funcs == total_funcs:
+                progress_percent = (exported_funcs + len(failed_funcs)) / total_funcs * 100
+                print("[+] Progress: {}/{} processed ({:.1f}%) - {} exported, {} failed".format(
+                    exported_funcs + len(failed_funcs), total_funcs, progress_percent, 
+                    exported_funcs, len(failed_funcs)))
                 
         except Exception as e:
             failed_funcs.append((func, func_name, str(e)))
@@ -341,7 +466,7 @@ class traceNatives(plugin_t):
     wanted_hotkey = ""
 
     def init(self):
-        print("FuncExport(v0.2) plugin has been loaded.")
+        print("FuncExport(v0.3) plugin has been loaded.")
         print("Original author: https://github.com/jitcor")
         return PLUGIN_OK
     
@@ -393,6 +518,14 @@ class traceNatives(plugin_t):
             export_exports(save_path)
         except Exception as e:
             print(f"[!] Error exporting exports: {e}")
+        print("")
+        
+        # 导出调用链分析
+        print("[*] Exporting call graph analysis...")
+        try:
+            export_call_graph(save_path)
+        except Exception as e:
+            print(f"[!] Error exporting call graph: {e}")
         print("")
         
         # 导出内存
