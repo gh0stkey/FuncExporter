@@ -390,7 +390,7 @@ def export_decompiled_functions(export_dir):
             output_lines.append(dec_str)
             
             # 使用地址作为文件名
-            output_filename = "{}.txt".format(hex(func))
+            output_filename = "{}.c".format(hex(func))
             output_path = os.path.join(decompile_dir, output_filename)
             
             with open(output_path, 'w', encoding='utf-8') as f:
